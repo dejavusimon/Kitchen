@@ -20,7 +20,7 @@
      时间电量是白字，垫在深色上才看得清。 */
   html, body { margin: 0; height: 100%; background: #DCD8CC; overflow: hidden; }
   #app {
-    position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+    position: fixed; top: 0; left: 0;
     width: 100%; height: 100%; border: 0; display: block; background: #DCD8CC;
   }
 </style>
@@ -34,7 +34,21 @@
   /* ↑↑↑ 只改这一行 ↑↑↑ */
 
   // 外壳网址上带的参数（比如 ?theme=night）原样传进去
-  document.getElementById('app').src = EXEC_URL + location.search;
+  var app = document.getElementById('app');
+  app.src = EXEC_URL + location.search;
+
+  // iPhone 主屏幕 app 的毛病：100% 高度会比真屏幕短一截（差不多一个状态栏高），
+  // 底下就露出一条空白。这里直接按屏幕真实高度撑满。
+  function fit() {
+    if (!navigator.standalone) { app.style.height = ''; return; }
+    var a = screen.width, b = screen.height;
+    var portrait = window.innerHeight >= window.innerWidth;
+    var h = portrait ? Math.max(a, b) : Math.min(a, b);
+    app.style.height = Math.max(h, window.innerHeight) + 'px';
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
 </script>
 </body>
 </html>
