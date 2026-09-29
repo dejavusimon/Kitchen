@@ -18,7 +18,7 @@
   /* iframe 用 fixed 铺满整个屏幕（连状态栏和底部横条下面也铺）。
      安全区交给里面的 app 自己让：顶上那条深木色也是 app 自己画的，
      时间电量是白字，垫在深色上才看得清。 */
-  html, body { margin: 0; height: 100%; background: #DCD8CC; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #FF00FF; overflow: hidden; }  /* 诊断用：品红 = 外壳 */
   /* iOS 26 的已知毛病：主屏幕 app 里 100%（还有 100dvh）会比真屏幕短一个状态栏高，
      整页连同里面的 app 被从这里截断，底下露出一条。只有 100lvh 量得对。
      所以装到主屏幕时，html/body 用 100lvh；Safari 标签页里不受影响。 */
@@ -28,7 +28,7 @@
   html.ios-app, html.ios-app body { height: 100lvh; }
   #app {
     position: fixed; top: 0; left: 0;
-    width: 100%; height: 100%; border: 0; display: block; background: #DCD8CC;
+    width: 100%; height: 100%; border: 0; display: block; background: #00E5FF;  /* 诊断用：青色 = iframe */
   }
 </style>
 </head>
@@ -70,6 +70,39 @@
     visualViewport.addEventListener('scroll', pin);
     visualViewport.addEventListener('resize', fit);
   }
+
+  /* ===== 临时诊断：量出每一层到底多高，确认后删掉 ===== */
+  (function () {
+    var box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:50%;top:40%;transform:translateX(-50%);z-index:9;' +
+      'background:rgba(0,0,0,.8);color:#fff;font:12px/1.4 ui-monospace,Menlo,monospace;' +
+      'padding:8px 10px;white-space:pre;pointer-events:none;border:2px solid #fff';
+    document.body.appendChild(box);
+    function probe(css) {
+      var d = document.createElement('div');
+      d.style.cssText = 'position:absolute;left:-9999px;top:0;width:1px;' + css;
+      document.body.appendChild(d);
+      var h = d.offsetHeight; d.remove(); return h;
+    }
+    function row() {
+      var r = app.getBoundingClientRect(), vv = window.visualViewport;
+      var dm = ['standalone', 'fullscreen', 'minimal-ui', 'browser'].filter(function (m) {
+        return matchMedia('(display-mode: ' + m + ')').matches; })[0] || '?';
+      box.textContent =
+        'DIAG wrapper-dbg1\n' +
+        'standalone ' + navigator.standalone + '  mode ' + dm + '\n' +
+        'screen     ' + screen.width + ' x ' + screen.height + '\n' +
+        'innerH     ' + window.innerHeight + '   docH ' + document.documentElement.clientHeight + '\n' +
+        'vv         ' + (vv ? Math.round(vv.height) + ' @' + Math.round(vv.offsetTop) : '-') + '\n' +
+        'vh/lvh     ' + probe('height:100vh') + ' / ' + probe('height:100lvh') + '\n' +
+        'dvh/svh    ' + probe('height:100dvh') + ' / ' + probe('height:100svh') + '\n' +
+        'safe t/b   ' + probe('height:env(safe-area-inset-top)') + ' / ' + probe('height:env(safe-area-inset-bottom)') + '\n' +
+        'html/body  ' + document.documentElement.offsetHeight + ' / ' + document.body.offsetHeight + '\n' +
+        'iframe     ' + Math.round(r.top) + ' → ' + Math.round(r.bottom) + ' (h ' + Math.round(r.height) + ')\n' +
+        'scrollY    ' + window.scrollY;
+    }
+    row(); setInterval(row, 1000);
+  })();
 </script>
 </body>
 </html>
