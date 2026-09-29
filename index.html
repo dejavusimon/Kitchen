@@ -19,6 +19,13 @@
      安全区交给里面的 app 自己让：顶上那条深木色也是 app 自己画的，
      时间电量是白字，垫在深色上才看得清。 */
   html, body { margin: 0; height: 100%; background: #DCD8CC; overflow: hidden; }
+  /* iOS 26 的已知毛病：主屏幕 app 里 100%（还有 100dvh）会比真屏幕短一个状态栏高，
+     整页连同里面的 app 被从这里截断，底下露出一条。只有 100lvh 量得对。
+     所以装到主屏幕时，html/body 用 100lvh；Safari 标签页里不受影响。 */
+  @media (display-mode: standalone), (display-mode: fullscreen) {
+    html, body { height: 100lvh; }
+  }
+  html.ios-app, html.ios-app body { height: 100lvh; }
   #app {
     position: fixed; top: 0; left: 0;
     width: 100%; height: 100%; border: 0; display: block; background: #DCD8CC;
@@ -39,6 +46,7 @@
 
   // iPhone 主屏幕 app 的毛病：100% 高度会比真屏幕短一截（差不多一个状态栏高），
   // 底下就露出一条空白。这里直接按屏幕真实高度撑满。
+  if (navigator.standalone) document.documentElement.classList.add('ios-app');
   function fit() {
     if (!navigator.standalone) { app.style.height = ''; return; }
     var a = screen.width, b = screen.height;
