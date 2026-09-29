@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>上厨房</title>
+<!-- 外壳页：只负责主屏幕图标、名字和全屏，里面整页嵌着 Apps Script 的 /exec。
+     以后改 app 只在 Apps Script 里发新版本，这个页面不用动（/exec 网址不变）。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="上厨房">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2A1E16">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+  /* 手机顶上的时间/电量和底下的横条，底色都用深木色，像一圈木框。
+     嵌进来的页面拿不到安全区的尺寸，所以安全区由这一层让出来。 */
+  html, body { margin: 0; height: 100%; background: #2A1E16; overflow: hidden; }
+  body {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  #app { display: block; width: 100%; height: 100%; border: 0; background: #DCD8CC; }
+</style>
+</head>
+<body>
+<iframe id="app" title="上厨房"
+        allow="geolocation; clipboard-read; clipboard-write; fullscreen"></iframe>
+<script>
+  /* ↓↓↓ 把引号里换成你的 Apps Script「网页应用」网址（/exec 结尾） ↓↓↓ */
+  var EXEC_URL = 'https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec';
+  /* ↑↑↑ 只改这一行 ↑↑↑ */
+
+  // 外壳网址上带的参数（比如 ?theme=night）原样传进去
+  document.getElementById('app').src = EXEC_URL + location.search;
+</script>
+</body>
+</html>
