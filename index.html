@@ -18,7 +18,10 @@
   /* iframe 用 fixed 铺满整个屏幕（连状态栏和底部横条下面也铺）。
      安全区交给里面的 app 自己让：顶上那条深木色也是 app 自己画的，
      时间电量是白字，垫在深色上才看得清。 */
-  html, body { margin: 0; height: 100%; background: #DCD8CC; overflow: hidden; }
+  html, body {
+    margin: 0; background: #DCD8CC; overflow: hidden; overscroll-behavior: none;
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  }
   #app {
     position: fixed; top: 0; left: 0;
     width: 100%; height: 100%; border: 0; display: block; background: #DCD8CC;
@@ -40,15 +43,34 @@
   // iPhone 主屏幕 app 的毛病：100% 高度会比真屏幕短一截（差不多一个状态栏高），
   // 底下就露出一条空白。这里直接按屏幕真实高度撑满。
   function fit() {
-    if (!navigator.standalone) { app.style.height = ''; return; }
+    if (!navigator.standalone) {
+      app.style.height = document.documentElement.style.height = document.body.style.height = '';
+      return;
+    }
     var a = screen.width, b = screen.height;
     var portrait = window.innerHeight >= window.innerWidth;
     var h = portrait ? Math.max(a, b) : Math.min(a, b);
-    app.style.height = Math.max(h, window.innerHeight) + 'px';
+    var px = Math.max(h, window.innerHeight) + 'px';
+    app.style.height = px;
+    document.documentElement.style.height = px;
+    document.body.style.height = px;
   }
   fit();
   window.addEventListener('resize', fit);
   window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+  window.addEventListener('pageshow', fit);
+  document.addEventListener('visibilitychange', fit);
+
+  // 外壳本身永远不该被滚动；万一被手势带着挪了，立刻归位。
+  function pin() {
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0; document.body.scrollTop = 0;
+  }
+  window.addEventListener('scroll', pin);
+  if (window.visualViewport) {
+    visualViewport.addEventListener('scroll', pin);
+    visualViewport.addEventListener('resize', fit);
+  }
 </script>
 </body>
 </html>
