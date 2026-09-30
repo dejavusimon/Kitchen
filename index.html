@@ -45,14 +45,31 @@
   app.src = EXEC_URL + location.search;
 
   // iPhone 主屏幕 app 的毛病：100% 高度会比真屏幕短一截（差不多一个状态栏高），
-  // 底下就露出一条空白。这里直接按屏幕真实高度撑满。
+  // 底下就露出一条空白。所以平时按屏幕真实高度撑满。
+  //
+  // 键盘弹起时反过来：把 app 缩到键盘上面那块可见区域。
+  // app 套在好几层 iframe 里，自己量不到键盘；外壳是最外层，量得到。
+  // 外壳一缩，里面的 app 就以为屏幕变矮了，输入框、面板自然都待在键盘上面。
   if (navigator.standalone) document.documentElement.classList.add('ios-app');
-  function fit() {
-    if (!navigator.standalone) { app.style.height = ''; return; }
+  var vv = window.visualViewport;
+  var kbOpen = false;
+
+  function screenH() {
     var a = screen.width, b = screen.height;
     var portrait = window.innerHeight >= window.innerWidth;
-    var h = portrait ? Math.max(a, b) : Math.min(a, b);
-    app.style.height = Math.max(h, window.innerHeight) + 'px';
+    return Math.max(portrait ? Math.max(a, b) : Math.min(a, b), window.innerHeight);
+  }
+
+  function fit() {
+    var visible = vv ? vv.height : window.innerHeight;
+    kbOpen = !!vv && visible < window.innerHeight - 120;
+    if (kbOpen) {
+      app.style.top = Math.round(vv.offsetTop) + 'px';
+      app.style.height = Math.round(visible) + 'px';
+    } else {
+      app.style.top = '0px';
+      app.style.height = navigator.standalone ? screenH() + 'px' : '';
+    }
   }
   fit();
   window.addEventListener('resize', fit);
@@ -60,15 +77,16 @@
   window.addEventListener('pageshow', fit);
   document.addEventListener('visibilitychange', fit);
 
-  // 外壳本身永远不该被滚动；万一被手势带着挪了，立刻归位。
+  // 外壳本身不该被滚动；被手势带着挪了就归位。键盘开着时由 fit 跟着可见区走，不去拽它。
   function pin() {
+    if (kbOpen) { fit(); return; }
     if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0; document.body.scrollTop = 0;
   }
   window.addEventListener('scroll', pin);
-  if (window.visualViewport) {
-    visualViewport.addEventListener('scroll', pin);
-    visualViewport.addEventListener('resize', fit);
+  if (vv) {
+    vv.addEventListener('scroll', pin);
+    vv.addEventListener('resize', fit);
   }
 </script>
 </body>
