@@ -40,6 +40,27 @@
   var EXEC_URL = 'https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec';
   /* ↑↑↑ 只改这一行 ↑↑↑ */
 
+  // 设置（语言、日夜、默认页、我是谁、冰箱提醒天数）存在外壳这里。
+  // app 本身跑在 Google 的小框里，iPhone 会把小框的本地存储当临时的，一关就丢；
+  // 外壳是最外层，存储会一直留着。app 启动时来要一份，改了就交过来存。
+  var PREF_STORE = 'gd_prefs';
+  function loadPrefs() {
+    try { return JSON.parse(localStorage.getItem(PREF_STORE) || '{}') || {}; } catch (e) { return {}; }
+  }
+  window.addEventListener('message', function (e) {
+    var host = '';
+    try { host = new URL(e.origin).hostname; } catch (err) { return; }
+    if (!/\.googleusercontent\.com$/.test(host) && host !== 'script.google.com') return;
+    var d = e.data || {};
+    if (d.gd === 'pref-req') {
+      e.source.postMessage({ gd: 'prefs', prefs: loadPrefs() }, e.origin);
+    } else if (d.gd === 'pref-set' && typeof d.key === 'string' && d.key.length < 64) {
+      var p = loadPrefs();
+      if (d.value == null) delete p[d.key]; else p[d.key] = String(d.value).slice(0, 200);
+      try { localStorage.setItem(PREF_STORE, JSON.stringify(p)); } catch (err) {}
+    }
+  });
+
   // 外壳网址上带的参数（比如 ?theme=night）原样传进去
   var app = document.getElementById('app');
   app.src = EXEC_URL + location.search;
