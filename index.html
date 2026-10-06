@@ -73,6 +73,7 @@
     var d = e.data || {};
     if (d.gd === 'tilt-on') { tiltStart(e.source, e.origin, d.lang, d.reask); return; }
     if (d.gd === 'tilt-off') { tiltStop(); return; }
+    if (d.gd === 'tilt-ping') { tiltHello(e.source, e.origin); return; }
     if (d.gd === 'pref-req') {
       e.source.postMessage({ gd: 'prefs', prefs: loadPrefs() }, e.origin);
     } else if (d.gd === 'pref-set' && typeof d.key === 'string' && d.key.length < 64) {
@@ -92,6 +93,7 @@
      拒绝过就记下来不再问，app 设置里把这个功能关了再开会重新问。 */
   var TILT = { on: false, win: null, origin: '*', last: 0, got: false, shakeAt: 0, lang: 'zh', timer: 0 };
   var TILT_DENIED = 'gd_tilt_denied';
+  var SHELL_VERSION = 2;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
   var tiltAsk = document.getElementById('tiltAsk');
 
   function needsPermission() {
@@ -102,6 +104,18 @@
     var a = (screen.orientation && typeof screen.orientation.angle === 'number')
       ? screen.orientation.angle : (window.orientation || 0);
     return ((Number(a) || 0) % 360 + 360) % 360;
+  }
+  /* 告诉 app：外壳是新版的、是不是要授权的 iPhone、授权到哪一步了。
+     state：granted（有读数了）· denied（拒绝过）· waiting（还没读数，也没拒绝过） */
+  function tiltState() {
+    if (TILT.got) return 'granted';
+    try { if (localStorage.getItem(TILT_DENIED) === '1') return 'denied'; } catch (err) {}
+    return 'waiting';
+  }
+  function tiltHello(win, origin) {
+    try {
+      win.postMessage({ gd: 'tilt-hello', v: SHELL_VERSION, ios: needsPermission(), state: tiltState() }, origin);
+    } catch (err) {}
   }
   function send(msg) {
     if (!TILT.on || !TILT.win) return;
@@ -136,6 +150,7 @@
   function tiltStart(win, origin, lang, reask) {
     TILT.win = win; TILT.origin = origin; TILT.lang = lang === 'en' ? 'en' : 'zh';
     if (reask) { try { localStorage.removeItem(TILT_DENIED); } catch (err) {} }
+    tiltHello(win, origin);
     if (TILT.on) return;
     TILT.on = true;
     window.addEventListener('deviceorientation', onOrient);
@@ -164,11 +179,13 @@
     }
     Promise.all(asks).then(function (res) {
       if (res[0] !== 'granted') { try { localStorage.setItem(TILT_DENIED, '1'); } catch (err) {} }
+      if (TILT.win) tiltHello(TILT.win, TILT.origin);
     }).catch(function () {});
   };
   document.getElementById('tiltNo').onclick = function () {
     tiltAsk.classList.remove('on');
     try { localStorage.setItem(TILT_DENIED, '1'); } catch (err) {}
+    if (TILT.win) tiltHello(TILT.win, TILT.origin);
   };
 
   // 外壳网址上带的参数（比如 ?theme=night）原样传进去
