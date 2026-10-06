@@ -30,14 +30,33 @@
     position: fixed; top: 0; left: 0;
     width: 100%; height: 100%; border: 0; display: block; background: #DCD8CC;
   }
+  /* iPhone 读动作传感器要用户在最外层点一下授权。app 在小框里点的不算，
+     所以由外壳自己冒一条小木牌，压在 app 上面。 */
+  #tiltAsk {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); z-index: 10;
+    transform: translateX(-50%); display: none; align-items: center; gap: 8px;
+    width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 8px 8px 8px 14px;
+    font: 700 14px -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; color: #3A2A1E;
+    background: #F2E2C4; border: 3px solid #3A2A1E; box-shadow: 0 3px 0 #3A2A1E;
+  }
+  #tiltAsk.on { display: flex; }
+  #tiltAsk span { flex: 1; min-width: 0; }
+  #tiltAsk button {
+    flex: none; padding: 7px 12px; font: inherit; color: #FFF6E4; background: #4E7A3E;
+    border: 3px solid #3A2A1E; border-radius: 0; box-shadow: 0 3px 0 #3A2A1E;
+  }
+  #tiltAsk button.no { color: #3A2A1E; background: #FFF6E4; }
+  #tiltAsk button:active { transform: translateY(3px); box-shadow: none; }
 </style>
 </head>
 <body>
 <iframe id="app" title="上厨房"
-        allow="geolocation; microphone; clipboard-read; clipboard-write; fullscreen"></iframe>
+        allow="geolocation; microphone; clipboard-read; clipboard-write; fullscreen; accelerometer; gyroscope; magnetometer"></iframe>
+<div id="tiltAsk" role="dialog"><span id="tiltAskText"></span>
+  <button type="button" id="tiltYes"></button><button type="button" class="no" id="tiltNo"></button></div>
 <script>
   /* ↓↓↓ 把引号里换成你的 Apps Script「网页应用」网址（/exec 结尾） ↓↓↓ */
-  var EXEC_URL = 'https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec';
+  var EXEC_URL = 'https://script.google.com/macros/s/把你的部署ID放这里/exec';
   /* ↑↑↑ 只改这一行 ↑↑↑ */
 
   // 设置（语言、日夜、默认页、我是谁、冰箱提醒天数）存在外壳这里。
@@ -52,6 +71,8 @@
     try { host = new URL(e.origin).hostname; } catch (err) { return; }
     if (!/\.googleusercontent\.com$/.test(host) && host !== 'script.google.com') return;
     var d = e.data || {};
+    if (d.gd === 'tilt-on') { tiltStart(e.source, e.origin, d.lang, d.reask); return; }
+    if (d.gd === 'tilt-off') { tiltStop(); return; }
     if (d.gd === 'pref-req') {
       e.source.postMessage({ gd: 'prefs', prefs: loadPrefs() }, e.origin);
     } else if (d.gd === 'pref-set' && typeof d.key === 'string' && d.key.length < 64) {
@@ -60,6 +81,95 @@
       try { localStorage.setItem(PREF_STORE, JSON.stringify(p)); } catch (err) {}
     }
   });
+
+
+  /* ---------- 体感：社区页的泡泡跟着手机倾斜 ----------
+     app 套在 Google 的几层小框里，iPhone、Android 都不太肯把方向传感器交给小框。
+     外壳是最外层，量得到：app 进了社区页发 tilt-on，这里开始量，
+     把 beta / gamma（前后、左右歪了多少度）和屏幕方向送进去；离开社区页发 tilt-off 就停。
+     摇一摇另外发一条 shake。
+     iPhone 要用户在这一层点一下才肯给，所以量不到时冒一条小木牌问一句；
+     拒绝过就记下来不再问，app 设置里把这个功能关了再开会重新问。 */
+  var TILT = { on: false, win: null, origin: '*', last: 0, got: false, shakeAt: 0, lang: 'zh', timer: 0 };
+  var TILT_DENIED = 'gd_tilt_denied';
+  var tiltAsk = document.getElementById('tiltAsk');
+
+  function needsPermission() {
+    return typeof DeviceOrientationEvent !== 'undefined' &&
+           typeof DeviceOrientationEvent.requestPermission === 'function';
+  }
+  function screenAngle() {
+    var a = (screen.orientation && typeof screen.orientation.angle === 'number')
+      ? screen.orientation.angle : (window.orientation || 0);
+    return ((Number(a) || 0) % 360 + 360) % 360;
+  }
+  function send(msg) {
+    if (!TILT.on || !TILT.win) return;
+    try { TILT.win.postMessage(msg, TILT.origin); } catch (err) {}
+  }
+  function onOrient(e) {
+    if (e.beta == null || e.gamma == null) return;
+    TILT.got = true;
+    if (tiltAsk.classList.contains('on')) tiltAsk.classList.remove('on');
+    var now = Date.now();
+    if (now - TILT.last < 33) return;          // 一秒 30 次就够
+    TILT.last = now;
+    send({ gd: 'tilt', b: e.beta, g: e.gamma, a: screenAngle() });
+  }
+  function onMotion(e) {
+    var g = e.accelerationIncludingGravity;
+    if (!g || g.x == null) return;
+    var m = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
+    var now = Date.now();
+    if (Math.abs(m - 9.81) > 8 && now - TILT.shakeAt > 700) {
+      TILT.shakeAt = now;
+      send({ gd: 'shake' });
+    }
+  }
+  function askText() {
+    var en = TILT.lang === 'en';
+    document.getElementById('tiltAskText').textContent = en
+      ? 'Let the bubbles follow your phone’s tilt?' : '让泡泡跟着手机倾斜？';
+    document.getElementById('tiltYes').textContent = en ? 'Allow' : '允许';
+    document.getElementById('tiltNo').textContent = en ? 'Not now' : '不用';
+  }
+  function tiltStart(win, origin, lang, reask) {
+    TILT.win = win; TILT.origin = origin; TILT.lang = lang === 'en' ? 'en' : 'zh';
+    if (reask) { try { localStorage.removeItem(TILT_DENIED); } catch (err) {} }
+    if (TILT.on) return;
+    TILT.on = true;
+    window.addEventListener('deviceorientation', onOrient);
+    window.addEventListener('devicemotion', onMotion);
+    // 等一会儿还没读数，又是要授权的 iPhone，就问一句
+    clearTimeout(TILT.timer);
+    TILT.timer = setTimeout(function () {
+      var denied = false;
+      try { denied = localStorage.getItem(TILT_DENIED) === '1'; } catch (err) {}
+      if (TILT.on && !TILT.got && needsPermission() && !denied) { askText(); tiltAsk.classList.add('on'); }
+    }, 900);
+  }
+  function tiltStop() {
+    TILT.on = false;
+    clearTimeout(TILT.timer);
+    window.removeEventListener('deviceorientation', onOrient);
+    window.removeEventListener('devicemotion', onMotion);
+    tiltAsk.classList.remove('on');
+  }
+  document.getElementById('tiltYes').onclick = function () {
+    tiltAsk.classList.remove('on');
+    // 两个都要在这一下点击里当场发出去，晚一拍 iPhone 就不认了
+    var asks = [DeviceOrientationEvent.requestPermission()];
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      asks.push(DeviceMotionEvent.requestPermission());
+    }
+    Promise.all(asks).then(function (res) {
+      if (res[0] !== 'granted') { try { localStorage.setItem(TILT_DENIED, '1'); } catch (err) {} }
+    }).catch(function () {});
+  };
+  document.getElementById('tiltNo').onclick = function () {
+    tiltAsk.classList.remove('on');
+    try { localStorage.setItem(TILT_DENIED, '1'); } catch (err) {}
+  };
 
   // 外壳网址上带的参数（比如 ?theme=night）原样传进去
   var app = document.getElementById('app');
