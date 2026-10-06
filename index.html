@@ -51,6 +51,301 @@
 </head>
 <body>
 <iframe id="app" title="上厨房"
+        allow="geolocation; microphone; clipboard-read; clipboard-write; fullscreen; accelerometer; gyroscope; magnetometer; screen-wake-lock"></iframe>
+<div id="tiltAsk" role="dialog"><span id="tiltAskText"></span>
+  <button type="button" id="tiltYes"></button><button type="button" class="no" id="tiltNo"></button></div>
+<script>
+  /* ↓↓↓ 把引号里换成你的 Apps Script「网页应用」网址（/exec 结尾） ↓↓↓ */
+  var EXEC_URL = 'https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec';
+  /* ↑↑↑ 只改这一行 ↑↑↑ */
+
+  // 设置（语言、日夜、默认页、我是谁、冰箱提醒天数）存在外壳这里。
+  // app 本身跑在 Google 的小框里，iPhone 会把小框的本地存储当临时的，一关就丢；
+  // 外壳是最外层，存储会一直留着。app 启动时来要一份，改了就交过来存。
+  var PREF_STORE = 'gd_prefs';
+  function loadPrefs() {
+    try { return JSON.parse(localStorage.getItem(PREF_STORE) || '{}') || {}; } catch (e) { return {}; }
+  }
+  window.addEventListener('message', function (e) {
+    var host = '';
+    try { host = new URL(e.origin).hostname; } catch (err) { return; }
+    if (!/\.googleusercontent\.com$/.test(host) && host !== 'script.google.com') return;
+    var d = e.data || {};
+    if (d.gd === 'tilt-on') { tiltStart(e.source, e.origin, d.lang, d.reask); return; }
+    if (d.gd === 'tilt-off') { tiltStop(); return; }
+    if (d.gd === 'tilt-ping') { tiltHello(e.source, e.origin); return; }
+    if (d.gd === 'buzz') { buzz(d.p); return; }
+    if (d.gd === 'awake') { setAwake(d.on === true); return; }
+    if (d.gd === 'home-set') {
+      var k = cleanKey(d.key);
+      try { if (k) localStorage.setItem(HOME_STORE, k); else localStorage.removeItem(HOME_STORE); } catch (err) {}
+      return;
+    }
+    if (d.gd === 'pref-req') {
+      e.source.postMessage({ gd: 'prefs', prefs: loadPrefs() }, e.origin);
+    } else if (d.gd === 'pref-set' && typeof d.key === 'string' && d.key.length < 64) {
+      var p = loadPrefs();
+      if (d.value == null) delete p[d.key]; else p[d.key] = String(d.value).slice(0, 200);
+      try { localStorage.setItem(PREF_STORE, JSON.stringify(p)); } catch (err) {}
+    }
+  });
+
+
+  /* ---------- 体感：社区页的泡泡跟着手机倾斜 ----------
+     app 套在 Google 的几层小框里，iPhone、Android 都不太肯把方向传感器交给小框。
+     外壳是最外层，量得到：app 进了社区页发 tilt-on，这里开始量，
+     把 beta / gamma（前后、左右歪了多少度）和屏幕方向送进去；离开社区页发 tilt-off 就停。
+     摇一摇另外发一条 shake。
+     iPhone 要用户在这一层点一下才肯给，所以量不到时冒一条小木牌问一句；
+     拒绝过就记下来不再问，app 设置里把这个功能关了再开会重新问。 */
+  var TILT = { on: false, win: null, origin: '*', last: 0, got: false, shakeAt: 0, lang: 'zh', timer: 0 };
+  var TILT_DENIED = 'gd_tilt_denied';
+  var SHELL_VERSION = 5;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
+  var tiltAsk = document.getElementById('tiltAsk');
+
+  function needsPermission() {
+    return typeof DeviceOrientationEvent !== 'undefined' &&
+           typeof DeviceOrientationEvent.requestPermission === 'function';
+  }
+  function screenAngle() {
+    var a = (screen.orientation && typeof screen.orientation.angle === 'number')
+      ? screen.orientation.angle : (window.orientation || 0);
+    return ((Number(a) || 0) % 360 + 360) % 360;
+  }
+  /* 告诉 app：外壳是新版的、是不是要授权的 iPhone、授权到哪一步了。
+     state：granted（有读数了）· denied（拒绝过）· waiting（还没读数，也没拒绝过） */
+  function tiltState() {
+    if (TILT.got) return 'granted';
+    try { if (localStorage.getItem(TILT_DENIED) === '1') return 'denied'; } catch (err) {}
+    return 'waiting';
+  }
+  function tiltHello(win, origin) {
+    try {
+      // href：外壳自己的网址（不带 ?h=），app 用它拼邀请链接，对方打开也能装到主屏幕
+      win.postMessage({ gd: 'tilt-hello', v: SHELL_VERSION, ios: needsPermission(), state: tiltState(),
+                        href: location.origin + location.pathname }, origin);
+    } catch (err) {}
+  }
+  function send(msg) {
+    if (!TILT.on || !TILT.win) return;
+    try { TILT.win.postMessage(msg, TILT.origin); } catch (err) {}
+  }
+  function onOrient(e) {
+    if (e.beta == null || e.gamma == null) return;
+    TILT.got = true;
+    if (tiltAsk.classList.contains('on')) tiltAsk.classList.remove('on');
+    var now = Date.now();
+    if (now - TILT.last < 33) return;          // 一秒 30 次就够
+    TILT.last = now;
+    send({ gd: 'tilt', b: e.beta, g: e.gamma, a: screenAngle() });
+  }
+  function onMotion(e) {
+    var g = e.accelerationIncludingGravity;
+    if (!g || g.x == null) return;
+    var m = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
+    var now = Date.now();
+    if (Math.abs(m - 9.81) > 8 && now - TILT.shakeAt > 700) {
+      TILT.shakeAt = now;
+      send({ gd: 'shake' });
+    }
+  }
+  function askText() {
+    var en = TILT.lang === 'en';
+    document.getElementById('tiltAskText').textContent = en
+      ? 'Let the bubbles follow your phone’s tilt?' : '让泡泡跟着手机倾斜？';
+    document.getElementById('tiltYes').textContent = en ? 'Allow' : '允许';
+    document.getElementById('tiltNo').textContent = en ? 'Not now' : '不用';
+  }
+  function tiltStart(win, origin, lang, reask) {
+    TILT.win = win; TILT.origin = origin; TILT.lang = lang === 'en' ? 'en' : 'zh';
+    if (reask) { try { localStorage.removeItem(TILT_DENIED); } catch (err) {} }
+    tiltHello(win, origin);
+    if (TILT.on) return;
+    TILT.on = true;
+    window.addEventListener('deviceorientation', onOrient);
+    window.addEventListener('devicemotion', onMotion);
+    // 等一会儿还没读数，又是要授权的 iPhone，就问一句
+    clearTimeout(TILT.timer);
+    TILT.timer = setTimeout(function () {
+      var denied = false;
+      try { denied = localStorage.getItem(TILT_DENIED) === '1'; } catch (err) {}
+      if (TILT.on && !TILT.got && needsPermission() && !denied) { askText(); tiltAsk.classList.add('on'); }
+    }, 900);
+  }
+  function tiltStop() {
+    TILT.on = false;
+    clearTimeout(TILT.timer);
+    window.removeEventListener('deviceorientation', onOrient);
+    window.removeEventListener('devicemotion', onMotion);
+    tiltAsk.classList.remove('on');
+  }
+  document.getElementById('tiltYes').onclick = function () {
+    tiltAsk.classList.remove('on');
+    // 两个都要在这一下点击里当场发出去，晚一拍 iPhone 就不认了
+    var asks = [DeviceOrientationEvent.requestPermission()];
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      asks.push(DeviceMotionEvent.requestPermission());
+    }
+    Promise.all(asks).then(function (res) {
+      if (res[0] !== 'granted') { try { localStorage.setItem(TILT_DENIED, '1'); } catch (err) {} }
+      if (TILT.win) tiltHello(TILT.win, TILT.origin);
+    }).catch(function () {});
+  };
+  document.getElementById('tiltNo').onclick = function () {
+    tiltAsk.classList.remove('on');
+    try { localStorage.setItem(TILT_DENIED, '1'); } catch (err) {}
+    if (TILT.win) tiltHello(TILT.win, TILT.origin);
+  };
+
+  /* ---------- 震动、屏幕常亮 ----------
+     app 在 Google 的小框里，震动和常亮都拿不到；外壳是最外层，替它做。
+     倒计时到点 → buzz；开始做、倒计时在走 → awake on。切回前台时系统会收回常亮，要重新要。 */
+  function buzz(p) {
+    var pat = Array.isArray(p) ? p.slice(0, 10).map(function (n) { return Math.max(0, Math.min(2000, Number(n) || 0)); })
+                               : [300];
+    try { if (navigator.vibrate) navigator.vibrate(pat); } catch (err) {}
+  }
+  var wake = null, wantAwake = false;
+  function setAwake(on) {
+    wantAwake = on;
+    if (on) {
+      if (wake || !navigator.wakeLock) return;
+      try {
+        navigator.wakeLock.request('screen').then(function (l) {
+          wake = l;
+          l.addEventListener('release', function () { wake = null; });
+          if (!wantAwake) { l.release(); wake = null; }
+        }).catch(function () {});
+      } catch (err) {}
+    } else if (wake) {
+      try { wake.release(); } catch (err) {}
+      wake = null;
+    }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && wantAwake && !wake) setAwake(true);
+  });
+
+  /* ---------- 这户的钥匙（?h=） ----------
+     邀请链接后面带着 ?h=钥匙。第一次打开就记在外壳这一层；之后不管从主屏幕图标打开时
+     ?h= 还在不在（iPhone、Android 都可能丢掉），都用记住的那把。
+     app 里换了钥匙（主账号「锁上 / 换钥匙」、或者在「打不开」那页贴了链接）会发 home-set 过来。
+     iPhone 的主屏幕 app 和 Safari 各存各的：在 Safari 里打开过不算，主屏幕 app 第一次
+     没带钥匙时，app 会请对方把链接贴一次，贴完就记住了。 */
+  var HOME_STORE = 'gd_home';
+  function cleanKey(v) { v = String(v || ''); return /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : ''; }
+  var params = new URLSearchParams(location.search);
+  var homeKey = cleanKey(params.get('h'));
+  try {
+    if (homeKey) localStorage.setItem(HOME_STORE, homeKey);
+    else homeKey = cleanKey(localStorage.getItem(HOME_STORE));
+  } catch (err) {}
+  if (homeKey) params.set('h', homeKey); else params.delete('h');
+
+  // 外壳网址上带的其它参数（比如 ?theme=night）原样传进去
+  var app = document.getElementById('app');
+  var qs = params.toString();
+  app.src = EXEC_URL + (qs ? '?' + qs : '');
+
+  // iPhone 主屏幕 app 的毛病：100% 高度会比真屏幕短一截（差不多一个状态栏高），
+  // 底下就露出一条空白。所以平时按屏幕真实高度撑满。
+  //
+  // 键盘弹起时反过来：把 app 缩到键盘上面那块可见区域。
+  // app 套在好几层 iframe 里，自己量不到键盘；外壳是最外层，量得到。
+  // 外壳一缩，里面的 app 就以为屏幕变矮了，输入框、面板自然都待在键盘上面。
+  if (navigator.standalone) document.documentElement.classList.add('ios-app');
+  var vv = window.visualViewport;
+  var kbOpen = false;
+
+  function screenH() {
+    var a = screen.width, b = screen.height;
+    var portrait = window.innerHeight >= window.innerWidth;
+    return Math.max(portrait ? Math.max(a, b) : Math.min(a, b), window.innerHeight);
+  }
+
+  function fit() {
+    var visible = vv ? vv.height : window.innerHeight;
+    kbOpen = !!vv && visible < window.innerHeight - 120;
+    if (kbOpen) {
+      app.style.top = Math.round(vv.offsetTop) + 'px';
+      app.style.height = Math.round(visible) + 'px';
+    } else {
+      app.style.top = '0px';
+      app.style.height = navigator.standalone ? screenH() + 'px' : '';
+    }
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+  window.addEventListener('pageshow', fit);
+  document.addEventListener('visibilitychange', fit);
+
+  // 外壳本身不该被滚动；被手势带着挪了就归位。键盘开着时由 fit 跟着可见区走，不去拽它。
+  function pin() {
+    if (kbOpen) { fit(); return; }
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0; document.body.scrollTop = 0;
+  }
+  window.addEventListener('scroll', pin);
+  if (vv) {
+    vv.addEventListener('scroll', pin);
+    vv.addEventListener('resize', fit);
+  }
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>上厨房</title>
+<!-- 外壳页：只负责主屏幕图标、名字和全屏，里面整页嵌着 Apps Script 的 /exec。
+     以后改 app 只在 Apps Script 里发新版本，这个页面不用动（/exec 网址不变）。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="上厨房">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2A1E16">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+  /* iframe 用 fixed 铺满整个屏幕（连状态栏和底部横条下面也铺）。
+     安全区交给里面的 app 自己让：顶上那条深木色也是 app 自己画的，
+     时间电量是白字，垫在深色上才看得清。 */
+  html, body { margin: 0; height: 100%; background: #DCD8CC; overflow: hidden; }
+  /* iOS 26 的已知毛病：主屏幕 app 里 100%（还有 100dvh）会比真屏幕短一个状态栏高，
+     整页连同里面的 app 被从这里截断，底下露出一条。只有 100lvh 量得对。
+     所以装到主屏幕时，html/body 用 100lvh；Safari 标签页里不受影响。 */
+  @media (display-mode: standalone), (display-mode: fullscreen) {
+    html, body { height: 100lvh; }
+  }
+  html.ios-app, html.ios-app body { height: 100lvh; }
+  #app {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%; border: 0; display: block; background: #DCD8CC;
+  }
+  /* iPhone 读动作传感器要用户在最外层点一下授权。app 在小框里点的不算，
+     所以由外壳自己冒一条小木牌，压在 app 上面。 */
+  #tiltAsk {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); z-index: 10;
+    transform: translateX(-50%); display: none; align-items: center; gap: 8px;
+    width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 8px 8px 8px 14px;
+    font: 700 14px -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; color: #3A2A1E;
+    background: #F2E2C4; border: 3px solid #3A2A1E; box-shadow: 0 3px 0 #3A2A1E;
+  }
+  #tiltAsk.on { display: flex; }
+  #tiltAsk span { flex: 1; min-width: 0; }
+  #tiltAsk button {
+    flex: none; padding: 7px 12px; font: inherit; color: #FFF6E4; background: #4E7A3E;
+    border: 3px solid #3A2A1E; border-radius: 0; box-shadow: 0 3px 0 #3A2A1E;
+  }
+  #tiltAsk button.no { color: #3A2A1E; background: #FFF6E4; }
+  #tiltAsk button:active { transform: translateY(3px); box-shadow: none; }
+</style>
+</head>
+<body>
+<iframe id="app" title="上厨房"
         allow="geolocation; microphone; clipboard-read; clipboard-write; fullscreen; accelerometer; gyroscope; magnetometer"></iframe>
 <div id="tiltAsk" role="dialog"><span id="tiltAskText"></span>
   <button type="button" id="tiltYes"></button><button type="button" class="no" id="tiltNo"></button></div>
