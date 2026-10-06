@@ -74,6 +74,11 @@
     if (d.gd === 'tilt-on') { tiltStart(e.source, e.origin, d.lang, d.reask); return; }
     if (d.gd === 'tilt-off') { tiltStop(); return; }
     if (d.gd === 'tilt-ping') { tiltHello(e.source, e.origin); return; }
+    if (d.gd === 'home-set') {
+      var k = cleanKey(d.key);
+      try { if (k) localStorage.setItem(HOME_STORE, k); else localStorage.removeItem(HOME_STORE); } catch (err) {}
+      return;
+    }
     if (d.gd === 'pref-req') {
       e.source.postMessage({ gd: 'prefs', prefs: loadPrefs() }, e.origin);
     } else if (d.gd === 'pref-set' && typeof d.key === 'string' && d.key.length < 64) {
@@ -93,7 +98,7 @@
      拒绝过就记下来不再问，app 设置里把这个功能关了再开会重新问。 */
   var TILT = { on: false, win: null, origin: '*', last: 0, got: false, shakeAt: 0, lang: 'zh', timer: 0 };
   var TILT_DENIED = 'gd_tilt_denied';
-  var SHELL_VERSION = 3;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
+  var SHELL_VERSION = 4;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
   var tiltAsk = document.getElementById('tiltAsk');
 
   function needsPermission() {
@@ -190,9 +195,26 @@
     if (TILT.win) tiltHello(TILT.win, TILT.origin);
   };
 
-  // 外壳网址上带的参数（比如 ?theme=night）原样传进去
+  /* ---------- 这户的钥匙（?h=） ----------
+     邀请链接后面带着 ?h=钥匙。第一次打开就记在外壳这一层；之后不管从主屏幕图标打开时
+     ?h= 还在不在（iPhone、Android 都可能丢掉），都用记住的那把。
+     app 里换了钥匙（主账号「锁上 / 换钥匙」、或者在「打不开」那页贴了链接）会发 home-set 过来。
+     iPhone 的主屏幕 app 和 Safari 各存各的：在 Safari 里打开过不算，主屏幕 app 第一次
+     没带钥匙时，app 会请对方把链接贴一次，贴完就记住了。 */
+  var HOME_STORE = 'gd_home';
+  function cleanKey(v) { v = String(v || ''); return /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : ''; }
+  var params = new URLSearchParams(location.search);
+  var homeKey = cleanKey(params.get('h'));
+  try {
+    if (homeKey) localStorage.setItem(HOME_STORE, homeKey);
+    else homeKey = cleanKey(localStorage.getItem(HOME_STORE));
+  } catch (err) {}
+  if (homeKey) params.set('h', homeKey); else params.delete('h');
+
+  // 外壳网址上带的其它参数（比如 ?theme=night）原样传进去
   var app = document.getElementById('app');
-  app.src = EXEC_URL + location.search;
+  var qs = params.toString();
+  app.src = EXEC_URL + (qs ? '?' + qs : '');
 
   // iPhone 主屏幕 app 的毛病：100% 高度会比真屏幕短一截（差不多一个状态栏高），
   // 底下就露出一条空白。所以平时按屏幕真实高度撑满。
