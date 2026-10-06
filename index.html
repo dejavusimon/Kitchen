@@ -93,7 +93,7 @@
      拒绝过就记下来不再问，app 设置里把这个功能关了再开会重新问。 */
   var TILT = { on: false, win: null, origin: '*', last: 0, got: false, shakeAt: 0, lang: 'zh', timer: 0 };
   var TILT_DENIED = 'gd_tilt_denied';
-  var SHELL_VERSION = 2;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
+  var SHELL_VERSION = 3;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
   var tiltAsk = document.getElementById('tiltAsk');
 
   function needsPermission() {
@@ -114,7 +114,9 @@
   }
   function tiltHello(win, origin) {
     try {
-      win.postMessage({ gd: 'tilt-hello', v: SHELL_VERSION, ios: needsPermission(), state: tiltState() }, origin);
+      // href：外壳自己的网址（不带 ?h=），app 用它拼邀请链接，对方打开也能装到主屏幕
+      win.postMessage({ gd: 'tilt-hello', v: SHELL_VERSION, ios: needsPermission(), state: tiltState(),
+                        href: location.origin + location.pathname }, origin);
     } catch (err) {}
   }
   function send(msg) {
