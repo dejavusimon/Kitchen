@@ -270,7 +270,7 @@ function pixSnakeRun(cv, opts) {
   <button type="button" id="tiltYes"></button><button type="button" class="no" id="tiltNo"></button></div>
 <script>
   /* ↓↓↓ 把引号里换成你的 Apps Script「网页应用」网址（/exec 结尾） ↓↓↓ */
-  var EXEC_URL = 'https://script.google.com/macros/s/https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec/exec';
+  var EXEC_URL = 'https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec';
   /* ↑↑↑ 只改这一行 ↑↑↑ */
 
   // 设置（语言、日夜、默认页、我是谁、冰箱提醒天数）存在外壳这里。
@@ -458,6 +458,11 @@ function pixSnakeRun(cv, opts) {
   if (homeKey) params.set('h', homeKey); else params.delete('h');
 
   // 外壳网址上带的其它参数（比如 ?theme=night）原样传进去
+  // 贴网址时容易多贴一截（前缀贴了两遍、结尾多一个 /exec）：只认里面的部署 ID，重新拼成标准的 /exec 网址
+  (function () {
+    var ids = String(EXEC_URL).match(/AKfy[A-Za-z0-9_-]{20,}/g);
+    if (ids) EXEC_URL = 'https://script.google.com/macros/s/' + ids[ids.length - 1] + '/exec';
+  })();
   var app = document.getElementById('app');
   var qs = params.toString();
   app.src = EXEC_URL + (qs ? '?' + qs : '');
