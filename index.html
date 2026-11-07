@@ -47,16 +47,230 @@
   }
   #tiltAsk button.no { color: #3A2A1E; background: #FFF6E4; }
   #tiltAsk button:active { transform: translateY(3px); box-shadow: none; }
+  /* 加载画面：从打开到 app 把账号、数据都拿到之前，盖在最上面。跟 app 里那层一模一样，
+     app 加载完发 {gd:'loaded'} 两层一起收，看起来是同一条蛇一直爬到底。 */
+  @font-face { font-family: 'ZpixBoot'; src: url(data:font/woff2;base64,d09GMgABAAAAAANwAAsAAAAAB6wAAAMkAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAgQwRCAqIBIYLATYCJAMwCx4ABCAFggoHIBvSBQCeg01ZO7bSwaZDujzHjzY9V2NE8LVf2W/mLc38uSCWJzAm68LkNhZQyOgYdU6nPJS/6POf5vR3dUM1T3RDRaABIK8ApBrfGxBKApczfugbPyLc3YcJRRzxE+ahtNX/AN/T5/9yemNbGK8NGod07X+/vW2MaaH2fEyNomWZpZH0Nkb6+3yemnoCfIOczWLHjNzObcp9FkNULzb8QSz5ize3vZc+VN6Y9k8d9V8CCSj3aw7OChRUHFQFDkofkOP2qpoL1uaAgYljFfXpRkosUiL2L34T+y82dw7t27Vj45+3J+efyxdOTtHUYlcFt+WjJ3GJuEG8QCABIVRFKopUdTNhlfPMlk3hbV+Co/dNy7158JrjEfc6NYs+H6JrNYbXyYieU4yI2suoU0fmJdE9JBj7SLaYDNMVqC0n0X2KCZhhJcesZz6i9K6ntJlei669ksBE6bPUuGOjG9ftzbgvYpRWPwKby5KB3hPuIN+Ep3UU7LEVg9+vZvsss5xg9CNQ3h7nRJ/1HIspDpjKkJKIHi08IoOHsFHjltLqZGg6whYH3vvAg1eYYSG6DzD6NlJ9nJo+a0devYIA4SCHg4RtpIKjvBwsMMr7KNqBytRzmETkAGFQlsoZGJ1rB3+BYILveV2ogBgF0uNnARAeBxtloxj9DIJAeTIOjBoBEkM0oShGJF4DtZpzIkgS9oxJZ3PAOVhhXAYwokCcUUVptooSI+AdjGIHoCSBCaauLfiCOlkmeA4mkllQRE8yWUUnVK7KEOEEYseYw/ayG+ExCICIC4xIWkgqXxCK9WF6qUJiOlPXzujTRBAIvvzThZmspv/Lntvw5/dCNuHvwZV9sluX6ypjqYDgx8/PDkJcrlcHttkQP3W8IGOxY9u+4EAmqG25LY2Z4trCQ1qRK9xHIAtL92XFluey6pzNesbJZg77Bee+hJF3VHXyaHCx9I6J93mnz7xKrzjYVLnFwcoExvXo16PKJ04mQRV6Qsdqz77lYOc1DqCfEgY+v+octw6mkke3XipK5qztO5thsRNXXJKlG+7SZaGer3Owy3HZBZdUYHe7Yg==) format('woff2'); }
+  #bootSnake {
+    position: fixed; inset: 0; z-index: 20; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    background: #D7D1C4; transition: opacity .3s steps(3);
+  }
+  #bootSnake.bye { opacity: 0; pointer-events: none; }
+  #bootSnake canvas { display: block; flex: none; width: 384px; height: 864px; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #bootSnake p {
+    position: absolute; left: 0; right: 0; top: 60%; margin: 0; text-align: center;
+    font: 15px 'ZpixBoot', -apple-system, 'PingFang SC', sans-serif; letter-spacing: .14em; color: #6B5442;
+  }
+  html.night #bootSnake { background: #232A40; }
+  html.night #bootSnake p { color: #E8D9B8; }
 </style>
 </head>
 <body>
+<div id="bootSnake" role="status" aria-live="polite">
+  <canvas id="bootCv" width="96" height="216" aria-hidden="true"></canvas>
+  <p id="bootTxt">正在载入…</p>
+</div>
+<script>
+var PIX_PAL = {
+  '.': null,
+  k: '#3A2A1E', w: '#FFF6E4', y: '#E0913C', r: '#A85632', R: '#C4342A',
+  g: '#4E7A3E', G: '#7FA85A', b: '#3F6E8C', B: '#8FB6C4',
+  t: '#8A5A34', T: '#C89A5E', p: '#E2C4C6', m: '#B0546A'
+};
+var PIX_SPRITES = {
+  egg: ['..kkkk..', '.kwwwwk.', 'kwwyywwk', 'kwyyyywk',
+        'kwwyywwk', 'kwwwwwwk', '.kwwwwk.', '..kkkk..'],
+  meat: ['...kk...', '..kmmk..', '.kmmmmk.', 'kmmrrmmk',
+         'kmrrrrmk', 'kmmrrmmk', '.kmmmmk.', '..kkkk..'],
+  fish: ['........', '...kkk.k', '..kBBBkk', '.kBkBBBk',
+         '.kBBBBkk', '..kBBk.k', '...kk...', '........'],
+  leaf: ['.....kk.', '....kGk.', '...kGGk.', '..kGgGk.',
+         '.kGggGk.', '.kgggk..', '..kgk...', '..k.....'],
+  chili: ['.....kk.', '....kgk.', '...kRgk.', '..kRRk..',
+          '.kRRRk..', '.kRRk...', '..kk....', '........'],
+  rice: ['........', '..kwwk..', '.kwwwwk.', 'kkkkkkkk',
+         'kTTTTTTk', '.kTTTTk.', '..kttk..', '...kk...'],
+  noodle: ['........', '.kyykyk.', 'kykyykyk', 'kkkkkkkk',
+           'kTTTTTTk', '.kTTTTk.', '..kttk..', '...kk...'],
+  soup: ['........', '........', '.k....k.', 'kkkkkkkk',
+         'kBBBBBBk', 'kTBBBBTk', '.kTTTTk.', '..kkkk..'],
+  tofu: ['........', '.kkkkkk.', 'kwwwwwwk', 'kwwwwwwk',
+         'kwwwwwwk', 'kwwwwwwk', '.kkkkkk.', '........'],
+  cake: ['...k....', '..kRk...', '.kkkkkk.', 'kppppppk',
+         'kwwwwwwk', 'kppppppk', 'kkkkkkkk', '........'],
+  fruit: ['...kGk..', '..kGGk..', '.kRRRRk.', 'kRRRRRRk',
+          'kRRRRRRk', 'kRRRRRRk', '.kRRRRk.', '..kkkk..'],
+  dumpling: ['........', '..kkkk..', '.kwwwwk.', 'kwTwTwwk',
+             'kwwwwwwk', 'kTwwwwTk', '.kkkkkk.', '........']
+};
+/* 加载画面：整个屏幕铺满棋盘格，中间一排食材，一条蛇从右往左把它们一个个吃掉，越吃越胖、越爬越快。
+   画法跟贪吃蛇彩蛋一样：8×8 一格，蛇身是格子中间的方块，胖一档方块就大一圈。
+   一趟爬完（尾巴也出了左边）就重新摆一排再来。加载完了不会半路掐断：
+   finish() 让蛇加速把这一趟吃完、爬出屏幕，再收起。
+   夜里棋盘是深蓝的，中间那排像被月光照亮，越往上下越暗。 */
+function pixSnakeRun(cv, opts) {
+  opts = opts || {};
+  var C = 8, S = 4;                    // 一格 8 像素，放大 4 倍
+  var g = null;
+  try { g = cv.getContext('2d'); } catch (e) {}
+  var keys = [];
+  for (var k in PIX_SPRITES) if (Object.prototype.hasOwnProperty.call(PIX_SPRITES, k)) keys.push(k);
+  var cols = 12, rows = 9, mid = 4, body = [], foods = [], total = 1, eaten = 0;
+  var timer = 0, dead = false, fast = 0, onDone = null;
+
+  function lay() {
+    var box = cv.parentNode || {};
+    var w = box.clientWidth || window.innerWidth || 390;
+    var h = box.clientHeight || window.innerHeight || 844;
+    cols = Math.max(8, Math.ceil(w / (C * S)));
+    rows = Math.max(3, Math.ceil(h / (C * S)));
+    if (rows % 2 === 0) rows++;                      // 单数行，食材那排正好在正中间
+    mid = (rows - 1) / 2;
+    if (cv.width !== cols * C) cv.width = cols * C;
+    if (cv.height !== rows * C) cv.height = rows * C;
+    cv.style.width = (cols * C * S) + 'px';
+    cv.style.height = (rows * C * S) + 'px';
+    if (opts.label) {                                // 字放在食材那排下面隔一行
+      var top = (h - rows * C * S) / 2 + (mid + 2) * C * S;
+      opts.label.style.top = Math.round(top) + 'px';
+    }
+    foods = [];
+    var last = '';
+    for (var x = 1; x < cols - 1; x += 2) {          // 隔一格放一样，排成一横排
+      var pick = keys[Math.floor(Math.random() * keys.length)];
+      if (pick === last && keys.length > 1) pick = keys[(keys.indexOf(pick) + 1) % keys.length];
+      last = pick;
+      foods.push({ x: x, k: pick });
+    }
+    total = Math.max(1, foods.length);
+    eaten = 0;
+    body = [cols, cols + 1, cols + 2];                // 头在前，先藏在右边屏幕外
+  }
+
+  function fat() { return 4 + Math.round(4 * eaten / total); }           // 4 → 8，吃完正好最胖
+  function tick() { return fast || [150, 135, 122, 110, 98][fat() - 4]; }
+
+  function sprite(key, px, py) {
+    var rws = PIX_SPRITES[key];
+    for (var y = 0; y < 8; y++) {
+      for (var x = 0; x < 8; x++) {
+        var c = PIX_PAL[rws[y].charAt(x)];
+        if (!c) continue;
+        g.fillStyle = c;
+        g.fillRect(px + x, py + y, 1, 1);
+      }
+    }
+  }
+
+  function night() { return !!(opts.isNight && opts.isNight()); }
+
+  function draw() {
+    if (!g) return;
+    var n = night();
+    g.fillStyle = n ? '#232A40' : '#D7D1C4';
+    g.fillRect(0, 0, cv.width, cv.height);
+    g.fillStyle = n ? 'rgba(170,190,255,.07)' : 'rgba(58,42,30,.055)';
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) if ((x + y) % 2) g.fillRect(x * C, y * C, C, C);
+    }
+    if (n) {
+      // 月光照着中间那排：一行一行往外淡，像素一档一档的，不是平滑渐变
+      for (var r = 0; r < rows; r++) {
+        var d = Math.abs(r - mid);
+        var a = [0.17, 0.13, 0.09, 0.06, 0.03][d] || 0;
+        if (!a) continue;
+        g.fillStyle = 'rgba(150,178,255,' + a + ')';
+        g.fillRect(0, r * C, cv.width, C);
+      }
+    }
+    var fy = mid * C;
+    for (var i = 0; i < foods.length; i++) sprite(foods[i].k, foods[i].x * C, fy);
+    var w = fat(), off = Math.floor((C - w) / 2);
+    for (var j = body.length - 1; j >= 0; j--) {
+      var bx = body[j];
+      if (bx < -1 || bx > cols) continue;
+      g.fillStyle = j === 0 ? (n ? '#4E7A3E' : '#365428') : (n ? '#6E9A52' : '#4E7A3E');
+      g.fillRect(bx * C + off, fy + off, w, w);
+    }
+    // 眼睛朝左（往前看）
+    var hx = body[0] * C + off;
+    g.fillStyle = '#FFF6E4';
+    g.fillRect(hx + 1, fy + off + 1, 1, 1);
+    g.fillRect(hx + 1, fy + off + w - 2, 1, 1);
+  }
+
+  function step() {
+    if (dead) return;
+    var nx = body[0] - 1;
+    body.unshift(nx);
+    var hit = -1;
+    for (var i = 0; i < foods.length; i++) if (foods[i].x === nx) hit = i;
+    if (hit > -1) { foods.splice(hit, 1); eaten++; }   // 吃到一样：长一节、胖一点
+    else body.pop();
+    if (body[body.length - 1] < 0) {                   // 尾巴也出了左边：这一趟完整爬完了
+      if (onDone) { dead = true; draw(); var f = onDone; onDone = null; f(); return; }
+      lay();
+    }
+    draw();
+    timer = setTimeout(step, tick());
+  }
+
+  lay();
+  draw();
+  timer = setTimeout(step, tick());
+  return {
+    stop: function () { dead = true; clearTimeout(timer); },
+    relay: function () { if (!onDone) { lay(); draw(); } else draw(); },
+    redraw: draw,
+    /* 加载完了：加速把这一趟吃完、爬出左边，再调 cb。剩下的路大约 0.7 秒走完。 */
+    finish: function (cb) {
+      if (dead) { cb(); return; }
+      onDone = cb;
+      var left = body[0] + body.length + foods.length + 1;
+      fast = Math.max(16, Math.min(60, Math.round(700 / Math.max(1, left))));
+      clearTimeout(timer);
+      timer = setTimeout(step, fast);
+    },
+    state: function () {
+      return { cols: cols, rows: rows, mid: mid, body: body.slice(), foods: foods.length, eaten: eaten, fat: fat(), fast: fast };
+    }
+  };
+}
+(function () {
+  var p = {};
+  try { p = JSON.parse(localStorage.getItem('gd_prefs') || '{}') || {}; } catch (e) {}
+  var th = p.themePref || 'auto', h = new Date().getHours();
+  if (th === 'night' || (th === 'auto' && (h >= 20 || h < 6))) document.documentElement.className += ' night';
+  if (p.gd_lang === 'en') document.getElementById('bootTxt').textContent = 'Loading…';
+  var root = document.documentElement;
+  var run = pixSnakeRun(document.getElementById('bootCv'), {
+    label: document.getElementById('bootTxt'),
+    isNight: function () { return (' ' + root.className + ' ').indexOf(' night ') > -1; }
+  });
+  var box = document.getElementById('bootSnake'), rt = 0;
+  window.addEventListener('resize', function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () { if (box.parentNode) run.relay(); }, 150);
+  });
+  var ending = false;
+  // app 说加载完了：不半路掐断，蛇加速把这一趟吃完、爬出左边再收
+  window.bootDone = function () {
+    if (ending) return;
+    ending = true;
+    run.finish(function () {
+      box.className += ' bye';
+      setTimeout(function () { run.stop(); if (box.parentNode) box.parentNode.removeChild(box); }, 320);
+    });
+  };
+  setTimeout(window.bootDone, 45000);   // 兜底：老版本的 app 不会发 loaded
+})();
+</script>
 <iframe id="app" title="上厨房"
         allow="geolocation; microphone; clipboard-read; clipboard-write; fullscreen; accelerometer; gyroscope; magnetometer; screen-wake-lock"></iframe>
 <div id="tiltAsk" role="dialog"><span id="tiltAskText"></span>
   <button type="button" id="tiltYes"></button><button type="button" class="no" id="tiltNo"></button></div>
 <script>
   /* ↓↓↓ 把引号里换成你的 Apps Script「网页应用」网址（/exec 结尾） ↓↓↓ */
-  var EXEC_URL = 'https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec';
+  var EXEC_URL = 'https://script.google.com/macros/s/https://script.google.com/macros/s/AKfycbyXwr4fKTNNmwnmsCdT8udhannVAk5vEKfaQp5x55VawQLNQqLJzAWKytchlDZhJGcBVg/exec/exec';
   /* ↑↑↑ 只改这一行 ↑↑↑ */
 
   // 设置（语言、日夜、默认页、我是谁、冰箱提醒天数）存在外壳这里。
@@ -75,6 +289,7 @@
     if (d.gd === 'tilt-off') { tiltStop(); return; }
     if (d.gd === 'tilt-ping') { tiltHello(e.source, e.origin); return; }
     if (d.gd === 'buzz') { buzz(d.p); return; }
+    if (d.gd === 'loaded') { if (window.bootDone) window.bootDone(); return; }
     if (d.gd === 'awake') { setAwake(d.on === true); return; }
     if (d.gd === 'home-set') {
       var k = cleanKey(d.key);
@@ -82,7 +297,7 @@
       return;
     }
     if (d.gd === 'pref-req') {
-      e.source.postMessage({ gd: 'prefs', prefs: loadPrefs() }, e.origin);
+      e.source.postMessage({ gd: 'prefs', prefs: loadPrefs(), boot: 1 }, e.origin);
     } else if (d.gd === 'pref-set' && typeof d.key === 'string' && d.key.length < 64) {
       var p = loadPrefs();
       if (d.value == null) delete p[d.key]; else p[d.key] = String(d.value).slice(0, 200);
@@ -100,7 +315,7 @@
      拒绝过就记下来不再问，app 设置里把这个功能关了再开会重新问。 */
   var TILT = { on: false, win: null, origin: '*', last: 0, got: false, shakeAt: 0, lang: 'zh', timer: 0 };
   var TILT_DENIED = 'gd_tilt_denied';
-  var SHELL_VERSION = 5;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
+  var SHELL_VERSION = 6;   // app 的设置页会显示这个，用来确认手机上跑的是新外壳
   var tiltAsk = document.getElementById('tiltAsk');
 
   function needsPermission() {
